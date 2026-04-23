@@ -38,23 +38,43 @@ class AdamW(Optimizer):
                 if grad.is_sparse:
                     raise RuntimeError("Adam does not support sparse gradients, please consider SparseAdam instead")
 
-                raise NotImplementedError()
-
                 # State should be stored in this dictionary
                 state = self.state[p]
+                
+                # Initialization of optimizer parameters
+                if len(state) == 0:
+                    state['step'] = 0 # Dùng int thông thường cho an toàn
+                    state['m'] = torch.zeros_like(p.data)
+                    state['v'] = torch.zeros_like(p.data)
 
                 # Access hyperparameters from the `group` dictionary
                 alpha = group["lr"]
+                beta1, beta2 = group["betas"]
+                eps = group["eps"]
+                weight_decay = group["weight_decay"]
+                correct_bias = group.get("correct_bias", True) # Lấy cấu hình correct_bias
 
-                # Update first and second moments of the gradients
+                # Update the step counter
+                state['step'] += 1
+                step = state['step']
 
-                # Bias correction
-                # Please note that we are using the "efficient version" given in
-                # https://arxiv.org/abs/1412.6980
+                # 1. Decoupled Weight Decay
+                if weight_decay > 0.0:
+                    p.data = p.data - alpha * weight_decay * p.data
 
-                # Update parameters
+                # 2. Update first and second moments of the gradients
+                state['m'] = beta1 * state['m'] + (1.0 - beta1) * grad
+                state['v'] = beta2 * state['v'] + (1.0 - beta2) * torch.pow(grad, 2)
 
-                # Add weight decay after the main gradient-based updates.
-                # Please note that the learning rate should be incorporated into this update.
+                # 3. Bias correction
+                if correct_bias:
+                    bias_correction1 = 1.0 - beta1 ** step
+                    bias_correction2 = 1.0 - beta2 ** step
+                    alpha_t = alpha * (math.sqrt(bias_correction2) / bias_correction1)
+                else:
+                    alpha_t = alpha
 
+                # 4. Update parameters
+                p.data = p.data - alpha_t * state['m'] / (state['v'].sqrt() + eps)
+                
         return loss

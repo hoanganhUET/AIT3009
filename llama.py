@@ -93,19 +93,15 @@ class Attention(nn.Module):
         Make sure to use attention_dropout (self.attn_dropout) on the computed
         attention matrix before applying it to the value tensor.
         '''
-        d_k = query.size(-1)
-        seq_len = query.size(2)
-
-
-        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
-        mask = torch.full((seq_len, seq_len), float('-inf'), device=scores.device)
-        mask = torch.triu(mask, diagonal=1)        
-        scores = scores + mask
-
-        attn = scores.softmax(dim=-1)
-        if self.attn_dropout is not None:
-            attn = self.attn_dropout(attn)
-        return torch.matmul(attn, value)
+        dropout_p = self.dropout if self.training else 0.0
+        return F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            attn_mask=None,
+            dropout_p=dropout_p,
+            is_causal=False,
+        )
 
     def forward(
         self,
@@ -330,4 +326,6 @@ def load_pretrained(checkpoint):
         if k.startswith(unwanted_prefix):
             state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
     model.load_state_dict(state_dict, strict=False)
+
+    model.eval()
     return model

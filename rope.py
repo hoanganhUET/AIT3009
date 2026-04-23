@@ -47,13 +47,18 @@ def apply_rotary_emb(
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: Tuple of modified query tensor and key tensor with rotary embeddings.
     """
+    if head_dim % 2 != 0:
+        raise ValueError(f"head_dim must be even for RoPE, got {head_dim}.")
+    if query.shape[-1] != head_dim or key.shape[-1] != head_dim:
+        raise ValueError(
+            f"Expected last dim to be head_dim={head_dim}, got query={query.shape[-1]}, key={key.shape[-1]}."
+        )
 
     _, seqlen, _, _ = query.shape
+    if seqlen > max_seq_len:
+        raise ValueError(f"Sequence length {seqlen} exceeds max_seq_len={max_seq_len}.")
+
     device = query.device
-    # todo
-    #
-    # Please refer to slide 22 in https://phontron.com/class/anlp2024/assets/slides/anlp-05-transformers.pdf
-    # and Section 3 in https://arxiv.org/abs/2104.09864.
 
     # reshape xq and xk to match the complex representation
     query_real, query_imag = query.float().reshape(query.shape[:-1] + (-1, 2)).unbind(-1)
@@ -63,8 +68,8 @@ def apply_rotary_emb(
 
     # First, compute the trigonometric values in the second and fourth columns in
     # slide 22 (linked above).
-    freqs = torch.pow(theta, -torch.arange(0, head_dim, 2, device=device)[:(head_dim//2)].float() / head_dim)
-    pos = torch.arange(seqlen, device=device).float()[:max_seq_len]
+    freqs = torch.pow(theta, -torch.arange(0, head_dim, 2, device=device).float() / head_dim)
+    pos = torch.arange(seqlen, device=device).float()
 
     freqs = torch.outer(freqs, pos).transpose(-2, -1).float()  # (head_dim // 2, max_seq_len)
     freqs = reshape_for_broadcast(freqs, query_real)
@@ -78,8 +83,8 @@ def apply_rotary_emb(
     query_stack = torch.stack((query_rotated_real, query_rotated_imag), dim=-1)
     key_stack = torch.stack((key_rotated_real, key_rotated_imag), dim=-1)
 
-    query_out = query_stack.reshape(query.shape)
-    key_out = key_stack.reshape(key.shape)
+    query_out = query_stack.reshape(query.shape).type_as(query)
+    key_out = key_stack.reshape(key.shape).type_as(key)
     
     # Return the rotary position embeddings for the query and key tensors
     return query_out, key_out
